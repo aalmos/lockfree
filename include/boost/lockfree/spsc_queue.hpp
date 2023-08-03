@@ -21,6 +21,8 @@
 #include <boost/next_prior.hpp>
 #include <boost/utility/enable_if.hpp>
 #include <boost/config.hpp> // for BOOST_LIKELY
+#include <boost/move/core.hpp>
+#include <boost/move/utility.hpp>>
 
 #include <boost/type_traits/has_trivial_destructor.hpp>
 #include <boost/type_traits/is_convertible.hpp>
@@ -102,7 +104,8 @@ protected:
         return write_available(write_index, read_index, max_size);
     }
 
-    bool push(T const & t, T * buffer, size_t max_size)
+    template <class... Args>
+    bool emplace(BOOST_FWD_REF(Args)... args, T * buffer, size_t max_size)
     {
         const size_t write_index = write_index_.load(memory_order_relaxed);  // only written from push thread
         const size_t next = next_index(write_index, max_size);
@@ -110,11 +113,16 @@ protected:
         if (next == read_index_.load(memory_order_acquire))
             return false; /* ringbuffer is full */
 
-        new (buffer + write_index) T(t); // copy-construct
+        new (buffer + write_index) T(boost::forward<Args>(args)...);
 
         write_index_.store(next, memory_order_release);
 
         return true;
+    }
+
+    bool push(T const & t, T * buffer, size_t max_size)
+    {
+        return emplace(t, buffer, max_size);
     }
 
     size_t push(const T * input_buffer, size_t input_count, T * internal_buffer, size_t max_size)
@@ -457,7 +465,18 @@ protected:
 public:
     bool push(T const & t)
     {
-        return ringbuffer_base<T>::push(t, data(), max_size);
+        return ringbuffer_base<T>::emplace(t, data(), max_size);
+    }
+
+    bool push(T && t)
+    {
+        return ringbuffer_base<T>::emplace(t, data(), max_size);
+    }
+
+    template <class... Args>
+    bool emplace(BOOST_FWD_REF(Args)... args)
+    {
+        return ringbuffer_base<T>::emplace(boost::forward<Args>(args)..., data(), max_size);
     }
 
     template <typename Functor>
